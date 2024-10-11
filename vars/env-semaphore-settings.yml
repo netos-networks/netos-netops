@@ -1,0 +1,7 @@
+CERT_CONTENT: "{{ lookup('env', 'CERT_CONTENT') | default('must-be-set-in-semaphore-variable') }}"
+CERT_DIR: "{{ lookup('env', 'CERT_DIR') | default('/netos/certs/semaphore') }}"
+DOMAIN: "{{ lookup('env', 'DOMAIN') | default('netos.dev') }}"
+ORG_NAME: "{{ lookup('env', 'ORG_NAME') | default('Netos Networks') }}"
+PRIVATE_CERT_CONTENT: "{{ lookup('env', 'PRIVATE_CERT_CONTENT') | default('must-be-set-in-semaphore-variable') }}"
+SECRET_KEY: "{{ lookup('env', 'SECRET_KEY') | default('ahz3ool4teiNgo7moh6fiehiuTh6zei5achae2eeshae9vaiYe') }}"
+SEMAPHORE_HOSTNAME: "{{ lookup('env', 'SEMAPHORE_HOSTNAME') | default('ansible') }}"

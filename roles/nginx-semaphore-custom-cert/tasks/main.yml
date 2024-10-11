@@ -1,0 +1,99 @@
+---
+# tasks file for nginx
+
+- name: Create certificate directory structure {{ CERT_DIR }} if it doesn't exist
+  file:
+    path: "{{ CERT_DIR }}"
+    state: directory
+    mode: '0755'
+
+- name: Ensure nginx is installed
+  apt:
+    name: nginx
+    state: present
+  register: apt_result
+  retries: 20
+  delay: 20
+  until: apt_result is succeeded or apt_result is changed
+
+# As there are potentially different services on the server (Semaphore, NetBox, Airflow, Elastic, Kibana, etc.),
+# we want to ensure that the endpoints are unique, i.e.
+#
+# - semaphore.yourdomain.com
+# - netbox.yourdomain.com
+# - airflow.yourdomain.com
+#
+# Ensure that each application has a unique name in the Semaphore Global Settings for each project.
+
+- name: Check for existing server_name in nginx configurations, ignoring semaphore.conf
+  shell: "grep -l 'server_name {{ SEMAPHORE_HOSTNAME }}.{{ DOMAIN }};' /etc/nginx/sites-enabled/*.conf | grep -v '/etc/nginx/sites-enabled/semaphore.conf'"
+  register: server_name_conflicts
+  ignore_errors: yes
+
+- name: Fail if the {{ SEMAPHORE_HOSTNAME }}.{{ DOMAIN }} already exists in another nginx config file
+  fail:
+    msg: "Conflict found: server_name '{{ SEMAPHORE_HOSTNAME }}.{{ DOMAIN }}' is already used in {{ server_name_conflicts.stdout_lines }}."
+  when: server_name_conflicts.stdout_lines | length > 0
+
+- name: Copy nginx configuration for Semaphore
+  template: 
+    src: "{{ item }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ item }}.conf"
+  with_items:
+    - semaphore
+  notify: restart nginx
+
+# When saving certs as secure variables in Semaphore, new lines are lost, resulting in cert import errors.
+# This hack replaces all spaces with new lines to get the cert back in shape.
+
+- name: Reformat and write the SSL certificate file for Semaphore
+  copy:
+    dest: "{{ CERT_DIR }}/{{ SEMAPHORE_HOSTNAME }}.{{ DOMAIN }}.crt"
+    content: "{{ CERT_CONTENT 
+                | replace('-----END CERTIFICATE-----', '-----END-CERTIFICATE-----') 
+                | replace('-----BEGIN CERTIFICATE-----', '-----BEGIN-CERTIFICATE-----') 
+                | replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN-PRIVATE-KEY-----') 
+                | replace('-----END PRIVATE KEY-----', '-----END-PRIVATE-KEY-----') 
+                | replace(' ', '\n') 
+                | replace('\\r\\n', '\n') 
+                | replace('\\n', '\n') 
+                | replace('-----END-CERTIFICATE-----', '-----END CERTIFICATE-----') 
+                | replace('-----BEGIN-CERTIFICATE-----', '-----BEGIN CERTIFICATE-----') 
+                | replace('-----BEGIN-PRIVATE-KEY-----', '-----BEGIN PRIVATE KEY-----') 
+                | replace('-----END-PRIVATE-KEY-----', '-----END PRIVATE KEY-----') }}"
+    mode: '0644'
+
+- name: Reformat and write the SSL certificate key file
+  copy:
+    dest: "{{ CERT_DIR }}/{{ SEMAPHORE_HOSTNAME }}.{{ DOMAIN }}-private.key"
+    content: "{{ PRIVATE_CERT_CONTENT
+                | replace('-----END CERTIFICATE-----', '-----END-CERTIFICATE-----') 
+                | replace('-----BEGIN CERTIFICATE-----', '-----BEGIN-CERTIFICATE-----') 
+                | replace('-----BEGIN PRIVATE KEY-----', '-----BEGIN-PRIVATE-KEY-----') 
+                | replace('-----END PRIVATE KEY-----', '-----END-PRIVATE-KEY-----') 
+                | replace(' ', '\n') 
+                | replace('\\r\\n', '\n') 
+                | replace('\\n', '\n') 
+                | replace('-----END-CERTIFICATE-----', '-----END CERTIFICATE-----') 
+                | replace('-----BEGIN-CERTIFICATE-----', '-----BEGIN CERTIFICATE-----') 
+                | replace('-----BEGIN-PRIVATE-KEY-----', '-----BEGIN PRIVATE KEY-----') 
+                | replace('-----END-PRIVATE-KEY-----', '-----END PRIVATE KEY-----') }}"
+    mode: '0600'
+
+- name: Copy nginx.conf global config to /etc/nginx/nginx.conf
+  template:
+    src: nginx.conf
+    dest: /etc/nginx/nginx.conf
+  notify: restart nginx
+
+- name: Remove nginx default virtual host
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
+- name: Ensure nginx service is started and enabled
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes

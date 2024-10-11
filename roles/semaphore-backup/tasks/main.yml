@@ -1,0 +1,107 @@
+---
+# tasks file for semaphore-backup
+
+- name: Create backup directory structure {{ BACKUP_DIR }} if it doesn't exist
+  file:
+    path: "{{ BACKUP_DIR }}"
+    state: directory
+    mode: '0755'
+
+- name: Set the backup date
+  set_fact:
+    backup_date: "{{ lookup('pipe', 'date +%m_%d_%Y_%H_%M') }}"
+
+- name: Set retention period based on retention type (days or weeks)
+  set_fact:
+    retention_period_days: |
+      {% if RETENTION_TYPE == 'days' %}
+        {{ RETENTION_PERIOD }}d
+      {% elif RETENTION_TYPE == 'weeks' %}
+        {{ RETENTION_PERIOD * 7 }}d
+      {% else %}
+        14d  # Default to 14 days if no retention type is provided
+      {% endif %}
+
+- name: Log rotation - find backups older than the retention period
+  find:
+    paths: "{{ BACKUP_DIR }}"
+    age: "{{ retention_period_days | trim }}"
+    recurse: yes
+  register: old_backups
+
+- name: Remove old backups based on retention period set in Semaphore
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  with_items: "{{ old_backups.files }}"
+
+- name: Backup /netos/ working directory excluding repositories, venv, and backups
+  ansible.builtin.command:
+    cmd: >
+      tar -czf /tmp/netos_working_{{ backup_date }}.tar.gz
+      --exclude='backups'
+      --exclude='netos-netops'
+      --exclude='netos-netbox'
+      --exclude='netos-pod'
+      --exclude='netos-airflow'
+      --exclude='netos-labs'
+      -C /netos .
+  register: backup_result
+
+- name: Move /netos/ backup to /netos/backups
+  ansible.builtin.command:
+    cmd: mv /tmp/netos_working_{{ backup_date }}.tar.gz {{ BACKUP_DIR }}/netos_working_{{ backup_date }}.tar.gz
+  when: backup_result.rc == 0
+
+- name: Encrypt /netos/ working directory backup using encryption key set in Semaphore Environment variable
+  command: >
+    openssl enc -aes-256-cbc -salt -in {{ BACKUP_DIR }}/netos_working_{{ backup_date }}.tar.gz -out {{ BACKUP_DIR }}/netos_working_{{ backup_date }}.tar.gz.enc -k {{ ENCRYPTION_KEY }}
+  args:
+    removes: "{{ BACKUP_DIR }}/netos_working_{{ backup_date }}.tar.gz"
+
+- name: Remove unencrypted Netos working directory backup file
+  ansible.builtin.file:
+    path: "{{ BACKUP_DIR }}/netos_working_{{ backup_date }}.tar.gz"
+    state: absent
+
+- name: Backup /etc/nginx/ directory
+  ansible.builtin.archive:
+    path: /etc/nginx
+    dest: "{{ BACKUP_DIR }}/nginx_{{ backup_date }}.tar.gz"
+    format: gz
+
+- name: Encrypt /etc/nginx/ backup using encryption key set in Semaphore Environment variable
+  command: >
+    openssl enc -aes-256-cbc -salt -in {{ BACKUP_DIR }}/nginx_{{ backup_date }}.tar.gz -out {{ BACKUP_DIR }}/nginx_{{ backup_date }}.tar.gz.enc -k {{ ENCRYPTION_KEY }}
+  args:
+    removes: "{{ BACKUP_DIR }}/nginx_{{ backup_date }}.tar.gz"
+
+- name: Remove unencrypted NGINX backup file
+  ansible.builtin.file:
+    path: "{{ BACKUP_DIR }}/nginx_{{ backup_date }}.tar.gz"
+    state: absent
+
+- name: Dump the Semaphore MySQL database
+  shell: "mysqldump --databases -u {{ MYSQL_USER }} -p'{{ MYSQL_PASS }}' {{ MYSQL_DB }} > {{ BACKUP_DIR }}/semaphore_db_{{ backup_date }}.sql"
+
+- name: Compress the MySQL dump file
+  command: gzip {{ BACKUP_DIR }}/semaphore_db_{{ backup_date }}.sql
+
+- name: Encrypt the Semaphore database backup
+  command: >
+    openssl enc -aes-256-cbc -salt -in {{ BACKUP_DIR }}/semaphore_db_{{ backup_date }}.gz -out {{ BACKUP_DIR }}/semaphore_db_{{ backup_date }}.gz.enc -k {{ ENCRYPTION_KEY }}
+  args:
+    removes: "{{ BACKUP_DIR }}/semaphore_db_{{ backup_date }}.gz"
+
+- name: Transfer encrypted backups via SFTP to {{ SFTP_HOST }}
+  shell: |
+    sshpass -p {{ SFTP_PASSWORD }} sftp -o StrictHostKeyChecking=no {{ SFTP_USER }}@{{ SFTP_HOST }} << EOF
+    put {{ BACKUP_DIR }}/semaphore_db_{{ backup_date }}.sql.gz.enc
+    put {{ BACKUP_DIR }}/netos_working_{{ backup_date }}.tar.gz.enc
+    put {{ BACKUP_DIR }}/nginx_{{ backup_date }}.json
+    EOF
+  when: SFTP_ENABLED == "Yes"
+
+- name: Print status message
+  ansible.builtin.debug:
+    msg: Decrypt files with "sudo openssl enc -aes-256-cbc -d -in BACKUP_FILE.enc -out OUTPUT.sql.gz/.tar.gz"

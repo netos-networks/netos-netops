@@ -1,0 +1,130 @@
+---
+# tasks file for semaphore
+
+- name: Ensure required MySQL packages and Ansible Core are installed
+  apt:
+    name: ["mysql-server","python3-pip","python3-mysqldb","ansible-core"]
+    state: present
+    update_cache: yes
+  register: apt_result
+  retries: 20
+  delay: 20
+  until: apt_result is succeeded
+
+- name: Ensure Mysql Python pip is installed
+  pip:
+    name: ["pymysql"]
+    state: present
+
+- name: Ensure MySQL is started and enabled
+  systemd:
+    name: mysql
+    state: started
+    enabled: yes
+
+- name: Create MySQL user for Ansible Semaphore
+  mysql_user:
+    name: "{{ SEMAPHORE_DB_USER }}"
+    password: "{{ SEMAPHORE_DB_PASSWORD }}"
+    priv: "{{ SEMAPHORE_DB_NAME }}.*:ALL"
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    host: '%'
+
+- name: Create MySQL Semaphore database
+  mysql_db:
+    name:
+      - "{{ SEMAPHORE_DB_NAME }}"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    state: present
+
+- name: Copy Semaphore database master Netos image
+  copy: 
+    src: semaphore-netos-netops.sql
+    dest: /tmp/semaphore-netos-netops.sql
+
+- name: Import Netos MySQL database for base Semaphore project
+  mysql_db:
+    name: "{{ SEMAPHORE_DB_NAME }}"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    state: import
+    target: /tmp/semaphore-netos-netops.sql
+
+- name: Ensure base directory structure is in place
+  file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - /var/lib/semaphore
+    - /etc/semaphore
+    - /netos/backups
+    - /netos/backups/semaphore
+    - /netos/backups/netbox
+    - /netos/backups/airflow
+    - /netos/backups/elastic
+    - /netos/working-dir
+    - /netos/working-dir/netos-plugins
+    - /netos/working-dir/netbox-plugins
+    - /netos/certs
+
+- name: Ensure Semaphore config exists
+  template:
+    src: config.json
+    dest: /etc/semaphore/config.json
+
+- name: Ensure Semaphore systemd file exists
+  template:
+    src: semaphore.service
+    dest: /etc/systemd/system/semaphore.service
+
+- name: Get the latest release info from Semaphore GitHub
+  uri:
+    url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
+    return_content: yes
+  register: release_info
+
+- name: Extract the download URL for the amd64.deb file
+  set_fact:
+    semaphore_download_url: "{{ release_info.json.assets | selectattr('browser_download_url', 'search', 'amd64.deb') | map(attribute='browser_download_url') | first }}"
+
+- name: Install the latest version of Semaphore
+  apt:
+    deb: "{{ semaphore_download_url }}"
+  register: apt_result
+  retries: 10
+  delay: 20
+  until: apt_result is succeeded
+
+- name: Make all maintenance scripts in /netos/netos-netops/scripts/bash/ executable
+  file:
+    path: "{{ item }}"
+    mode: '0755'
+  with_fileglob:
+    - "/netos/netos-netops/scripts/bash/*.sh"
+
+- name: Pull the Netos NetBox repository
+  become: yes
+  git:
+    repo: https://github.com/netos-networks/netos-netbox
+    dest: /netos/netos-netbox
+    force: yes
+    update: yes
+
+- name: Find all bash scripts in the netos-netbox directory
+  find:
+    paths: /netos/netos-netbox/scripts/bash
+    patterns: "*.sh"
+  register: bash_scripts_netbox
+
+- name: Ensure all bash scripts are executable
+  file:
+    path: "{{ item.path }}"
+    mode: '0755'
+  loop: "{{ bash_scripts_netbox.files }}"
+
+- name: Ensure the Semaphore service is started and enabled
+  systemd:
+    name: semaphore
+    state: started
+    enabled: yes
+    daemon-reload: yes

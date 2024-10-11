@@ -1,0 +1,2 @@
+NETOS_NETOPS_GIT: "{{ lookup('env', 'NETOS_NETOPS_GIT') | default('https://github.com/netos-networks/netos-netops') }}"
+NETOS_POD_GIT: "{{ lookup('env', 'NETOS_POD_GIT') | default('https://github.com/netos-networks/netos-pod') }}"

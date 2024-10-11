@@ -1,2 +1,0 @@
-# netos-semaphore
-Netos Semaphore

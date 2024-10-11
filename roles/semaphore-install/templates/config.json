@@ -1,0 +1,53 @@
+{
+    "bolt": {
+      "host": "/var/lib/semaphore/data/semaphore.bolt"
+    },
+    "mysql": {
+      "host": "127.0.0.1:3306",
+      "user": "{{ SEMAPHORE_DB_USER }}",
+      "pass": "{{ SEMAPHORE_DB_PASSWORD }}",
+      "name": "{{ SEMAPHORE_DB_NAME }}",
+      "options": {}
+    },
+    "postgres": {
+      "host": "127.0.0.1:5432",
+      "user": "root",
+      "pass": "{{ SEMAPHORE_DB_PASSWORD }}",
+      "name": "{{ SEMAPHORE_DB_NAME }}",
+      "options": {}
+    },
+    "dialect": "mysql",
+    "port": "",
+    "interface": "",
+    "tmp_path": "/tmp/semaphore",
+    "cookie_hash": "pCFzDRDD4pglHlvT97Po1tTVzl6ZZOVr2Pk4dBANRpA",
+    "cookie_encryption": "3dInVmOMuEGjyNs0TA8Oif5RH2myy089q4xbLlstXTE=",
+    "access_key_encryption": "CEtqx9DChuB3og7lXHSPESrozznSZfuLkIljO+gXoN8=",
+    "email_sender": "",
+    "email_host": "",
+    "email_port": "",
+    "web_host": "",
+    "ldap_binddn": "",
+    "ldap_bindpassword": "",
+    "ldap_server": "",
+    "ldap_searchdn": "",
+    "ldap_searchfilter": "",
+    "ldap_mappings": {
+      "dn": "",
+      "mail": "",
+      "uid": "",
+      "cn": ""
+    },
+    "telegram_chat": "",
+    "telegram_token": "",
+    "concurrency_mode": "",
+    "max_parallel_tasks": 0,
+    "email_alert": false,
+    "telegram_alert": false,
+    "slack_alert": false,
+    "slack_url": "",
+    "rocketchat_alert": false,
+    "rocketchat_url": "",
+    "ldap_enable": false,
+    "ldap_needtls": false
+  }

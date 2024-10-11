@@ -1,0 +1,1 @@
+# Scripts in this folder are for use by Semaphore

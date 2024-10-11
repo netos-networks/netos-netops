@@ -1,0 +1,23 @@
+---
+# tasks file for semaphore-repo-netops
+
+- name: Update the Netos NetOps repository
+  become: yes
+  git:
+    repo: "{{ NETOS_NETOPS_GIT }}"
+    dest: /netos/netos-netops
+    force: yes
+    update: yes
+  register: git_output
+
+- name: Find all bash scripts in the netos-netops directory
+  find:
+    paths: /netos/netos-netops/scripts/bash
+    patterns: "*.sh"
+  register: bash_scripts
+
+- name: Ensure all bash scripts are executable
+  file:
+    path: "{{ item.path }}"
+    mode: '0755'
+  loop: "{{ bash_scripts.files }}"
